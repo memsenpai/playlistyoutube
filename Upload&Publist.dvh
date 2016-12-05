@@ -1,0 +1,202 @@
+using System;
+using System.IO;
+using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
+
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Services;
+using Google.Apis.Upload;
+using Google.Apis.Util.Store;
+using Google.Apis.YouTube.v3;
+using Google.Apis.YouTube.v3.Data;
+using System.Collections.Generic;
+
+namespace Google.Apis.YouTube.Samples
+{
+    /// <summary>
+    /// YouTube Data API v3 sample: upload a video.
+    /// Relies on the Google APIs Client Library for .NET, v1.7.0 or higher.
+    /// See https://developers.google.com/api-client-library/dotnet/get_started
+    /// </summary>
+    internal class UploadVideo
+    {
+        [STAThread]
+        static void Main(string[] args)
+        {
+            Console.WriteLine("YouTube Data API: Upload Video");
+            Console.WriteLine("==============================");
+
+            try
+            {
+                new UploadVideo().Run().Wait();
+            }
+            catch (AggregateException ex)
+            {
+                foreach (var e in ex.InnerExceptions)
+                {
+                    Console.WriteLine("Error: " + e.Message);
+                }
+            }
+
+            Console.WriteLine("Press any key to continue...");
+            Console.ReadKey();
+        }
+
+        private async Task Run()
+        {
+            UserCredential credential;
+            using (var stream = new FileStream("client_id.json", FileMode.Open, FileAccess.Read))
+            {
+                credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
+                    GoogleClientSecrets.Load(stream).Secrets,
+                    // This OAuth 2.0 access scope allows an application to upload files to the
+                    // authenticated user's YouTube channel, but doesn't allow other types of access.
+                    new[] { YouTubeService.Scope.Youtube},
+                    "user",
+                    CancellationToken.None,
+                    new FileDataStore(this.GetType().ToString())
+                );
+            }
+
+            var youtubeService = new YouTubeService(new BaseClientService.Initializer()
+            {
+                HttpClientInitializer = credential,
+                ApplicationName = Assembly.GetExecutingAssembly().GetName().Name
+            });
+
+            var channelsListRequest = youtubeService.Channels.List("contentDetails");
+            channelsListRequest.Mine = true;
+
+            // Retrieve the contentDetails part of the channel resource for the authenticated user's channel.
+            var channelsListResponse = await channelsListRequest.ExecuteAsync();
+            List<string> list = new List<string>();
+            foreach (var channel in channelsListResponse.Items)
+            {
+                // From the API response, extract the playlist ID that identifies the list
+                // of videos uploaded to the authenticated user's channel.
+                var uploadsListId = channel.ContentDetails.RelatedPlaylists.Uploads;
+
+                Console.WriteLine("Videos in list {0}", uploadsListId);
+
+                var nextPageToken = "";
+                while (nextPageToken != null)
+                {
+                    var playlistItemsListRequest = youtubeService.PlaylistItems.List("snippet");
+                    playlistItemsListRequest.PlaylistId = uploadsListId;
+                    playlistItemsListRequest.MaxResults = 50;
+                    playlistItemsListRequest.PageToken = nextPageToken;
+
+                    // Retrieve the list of videos uploaded to the authenticated user's channel.
+                    var playlistItemsListResponse = await playlistItemsListRequest.ExecuteAsync();
+
+                    foreach (var playlistItem in playlistItemsListResponse.Items)
+                    {
+                        // Print information about each video.
+                        //Console.WriteLine("{0} ({1})", playlistItem.Snippet.Title, playlistItem.Snippet.ResourceId.VideoId);
+                        list.Add(playlistItem.Snippet.ResourceId.VideoId);
+                    }
+
+                    nextPageToken = playlistItemsListResponse.NextPageToken;
+                }
+            }
+            DateTime ss = new DateTime();
+            ss = DateTime.Now;
+            foreach(string s in list)
+            {
+                Console.WriteLine("ID:{0}",s);
+                Video video = new Video();
+                video.Id = s;
+                video.Status = new VideoStatus();
+                video.Status.License = "youtube";
+                video.Status.PrivacyStatus = "private";
+                video.Status.PublicStatsViewable = true;
+                ss = ss.AddHours(2);
+               // video.Status.PublishAt = ss;
+                 youtubeService.Videos.Update(video, "status").Execute();
+                Video video2 = new Video();
+                video2.Id = s;
+                video2.Status = new VideoStatus();
+                video2.Status.PublishAt = ss;
+                youtubeService.Videos.Update(video2, "status").Execute();
+                Console.WriteLine("Done ID:{0} at {1}",s,ss);
+            }
+            /*
+            Console.WriteLine("abc");
+            Video video = new Video();
+            video.Id = "kCQ-WF6hiTs";
+           // video.Snippet = new VideoSnippet();
+           // video.Snippet.Title = video.Snippet.Title;
+            //  video.Snippet.PublishedAt = DateTime.Now.AddHours(2);
+            video.Status = new VideoStatus();
+            video.Status.PublishAt = DateTime.Now.AddHours(2);
+            youtubeService.Videos.Update(video, "status").Execute();
+            Console.WriteLine("z");
+
+            */
+            
+            /*  DateTime s = new DateTime();
+              s = DateTime.Now;
+              string filepath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments); //floder video is My Document
+              DirectoryInfo d = new DirectoryInfo(filepath);
+
+              foreach (var file in d.GetFiles("*.mov"))
+              {
+                  var video = new Video();
+                  video.Snippet = new VideoSnippet();
+                  video.Snippet.Title = file.Name.Substring(0,file.Name.Length-4);
+                  string text = System.IO.File.ReadAllText(System.Environment.CurrentDirectory+@"\Des.txt");
+
+                  video.Snippet.Description = text;
+                  string[] tag = System.IO.File.ReadAllText(System.Environment.CurrentDirectory + @"\Tag.txt").Split(',');
+                  video.Snippet.Tags = tag;
+                  video.Snippet.CategoryId = "22"; // See https://developers.google.com/youtube/v3/docs/videoCategories/list
+                  video.Status = new VideoStatus();
+                  video.Status.License = "youtube";
+                  video.Status.PrivacyStatus = "private";
+                  video.Status.PublicStatsViewable = true;
+
+                //  AccessPolicy acc = new AccessPolicy();
+                //  acc.Allowed = true;
+                  //VideoMonetizationDetails mono = new VideoMonetizationDetails();
+                 // mono.Access= acc;
+                 // video.MonetizationDetails.Access = new AccessPolicy().Allowed.Value(true);
+                  s = s.AddHours(2);
+                  Console.WriteLine(s);
+                  video.Status.PublishAt = s;// or "private" or "public"
+                  var filePath = file.FullName; // Replace with path to actual movie file.
+
+                  using (var fileStream = new FileStream(filePath, FileMode.Open))
+                  {
+                      var videosInsertRequest = youtubeService.Videos.Insert(video, "snippet,status", fileStream, "video/*");
+                      videosInsertRequest.ProgressChanged += videosInsertRequest_ProgressChanged;
+                      videosInsertRequest.ResponseReceived += videosInsertRequest_ResponseReceived;
+
+                      await videosInsertRequest.UploadAsync();
+                  }
+              }*/
+
+
+
+        }
+
+        void videosInsertRequest_ProgressChanged(Google.Apis.Upload.IUploadProgress progress)
+        {
+            switch (progress.Status)
+            {
+                case UploadStatus.Uploading:
+                    Console.WriteLine("{0} bytes sent.", progress.BytesSent);
+                    break;
+
+                case UploadStatus.Failed:
+                    Console.WriteLine("An error prevented the upload from completing.\n{0}", progress.Exception);
+                    break;
+            }
+        }
+
+        void videosInsertRequest_ResponseReceived(Video video)
+        {
+            Console.WriteLine("Video id '{0}' was successfully uploaded.", video.Id);
+        }
+    }
+}
